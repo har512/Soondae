@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>카카오톡 대화 분석기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.8/dist/web/static/pretendard.css">
+    <style>
+        body { font-family: 'Pretendard', sans-serif; }
+        /* 간단한 애니메이션 효과 */
+        .result-item {
+            opacity: 0;
+            transform: translateY(10px);
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-lg text-center">
+        <h1 class="text-2xl font-bold mb-2 text-gray-800">카카오톡 대화 분석기</h1>
+        <p class="text-gray-500 mb-6">내보내기한 카카오톡 대화(.txt) 파일을 분석합니다.</p>
+        
+        <label for="fileInput" class="w-full cursor-pointer bg-yellow-300 text-gray-900 font-bold py-3 px-4 rounded-lg hover:bg-yellow-400 transition-colors duration-300 inline-block">
+            📂 파일 선택하기
+        </label>
+        <input type="file" id="fileInput" accept=".txt" class="hidden">
+        <p id="fileName" class="text-sm text-gray-600 mt-3 h-5"></p>
+
+        <div class="grid grid-cols-2 gap-4 mt-4">
+            <button id="analyzeDailyBtn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed" disabled>
+                오늘/어제 순위
+            </button>
+            <button id="analyzeWeeklyBtn" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition-colors duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed" disabled>
+                지난 7일간 순위
+            </button>
+            <button id="analyzeMonthlyStatusBtn" class="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition-colors duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed" disabled>
+                더 친해져요
+            </button>
+            <button id="downloadBtn" class="w-full bg-gray-800 text-white font-bold py-3 px-4 rounded-lg hover:bg-gray-900 transition-colors duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed" disabled>
+                CSV 다운로드
+            </button>
+        </div>
+        
+        <div id="message" class="mt-4 text-sm h-5"></div>
+
+        <!-- 분석 결과가 표시될 영역 -->
+        <div id="analysisResult" class="mt-6 text-left"></div>
+    </div>
+
+    <script>
+        // --- 전역 변수 ---
+        let parsedChatData = [];
+        let csvContent = '';
+
+        // --- DOM 요소 ---
+        const fileInput = document.getElementById('fileInput');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const analyzeDailyBtn = document.getElementById('analyzeDailyBtn');
+        const analyzeWeeklyBtn = document.getElementById('analyzeWeeklyBtn');
+        const analyzeMonthlyStatusBtn = document.getElementById('analyzeMonthlyStatusBtn');
+        const fileNameEl = document.getElementById('fileName');
+        const messageEl = document.getElementById('message');
+        const analysisResultEl = document.getElementById('analysisResult');
+
+        // --- 이벤트 리스너 ---
+        fileInput.addEventListener('change', handleFileSelect);
+        downloadBtn.addEventListener('click', handleDownload);
+        analyzeDailyBtn.addEventListener('click', handleDailyAnalysis);
+        analyzeWeeklyBtn.addEventListener('click', handleWeeklyAnalysis);
+        analyzeMonthlyStatusBtn.addEventListener('click', handleMonthlyStatus);
+
+        // --- 함수 정의 ---
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                resetUI();
+                return;
+            }
+            fileNameEl.textContent = file.name;
+            resetUI(false);
+            messageEl.textContent = '파일을 읽는 중...';
+            messageEl.className = 'mt-4 text-sm h-5 text-blue-600';
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const fileContent = e.target.result;
+                    parsedChatData = parseKakaoTalkLogExcelSafe(fileContent);
+                    if (parsedChatData.length > 0) {
+                        csvContent = convertToCSV(parsedChatData);
+                        downloadBtn.disabled = false;
+                        analyzeDailyBtn.disabled = false;
+                        analyzeWeeklyBtn.disabled = false;
+                        analyzeMonthlyStatusBtn.disabled = false;
+                        messageEl.textContent = `🎉 ${parsedChatData.length}개 메시지 처리 완료!`;
+                        messageEl.className = 'mt-4 text-sm h-5 text-green-600';
+                    } else {
+                        throw new Error("처리할 데이터가 없습니다. 파일 형식을 확인해주세요.");
+                    }
+                } catch (err) {
+                    resetUI(false);
+                    messageEl.textContent = `⚠️ 오류: ${err.message}`;
+                    messageEl.className = 'mt-4 text-sm h-5 text-red-600';
+                }
+            };
+            reader.onerror = () => {
+                resetUI();
+                messageEl.textContent = '⚠️ 파일을 읽는 데 실패했습니다.';
+                messageEl.className = 'mt-4 text-sm h-5 text-red-600';
+            };
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        function handleDailyAnalysis() {
+            if (parsedChatData.length === 0) return;
+            let chatsToAnalyze = [];
+            let analysisDateString = '';
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const todaysChats = parsedChatData.filter(chat => {
+                const chatDate = new Date(chat.Timestamp);
+                chatDate.setHours(0, 0, 0, 0);
+                return chatDate.getTime() === today.getTime();
+            });
+            if (todaysChats.length > 0) {
+                chatsToAnalyze = todaysChats;
+                analysisDateString = '오늘';
+            } else {
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                yesterday.setHours(0, 0, 0, 0);
+                const yesterdaysChats = parsedChatData.filter(chat => {
+                    const chatDate = new Date(chat.Timestamp);
+                    chatDate.setHours(0, 0, 0, 0);
+                    return chatDate.getTime() === yesterday.getTime();
+                });
+                if (yesterdaysChats.length > 0) {
+                    chatsToAnalyze = yesterdaysChats;
+                    analysisDateString = '어제';
+                }
+            }
+            if (chatsToAnalyze.length === 0) {
+                displayAnalysisResult([], '오늘과 어제');
+                return;
+            }
+            const userCounts = countUserMessages(chatsToAnalyze);
+            const top5 = getTopUsers(userCounts);
+            displayAnalysisResult(top5, analysisDateString);
+        }
+
+        function handleWeeklyAnalysis() {
+            if (parsedChatData.length === 0) return;
+            const now = new Date();
+            const sevenDaysAgo = new Date(now);
+            sevenDaysAgo.setDate(now.getDate() - 7);
+            sevenDaysAgo.setHours(0, 0, 0, 0); // 7일 전 자정부터 계산
+
+            const last7DaysChats = parsedChatData.filter(chat => {
+                const chatDate = new Date(chat.Timestamp);
+                return chatDate >= sevenDaysAgo;
+            });
+
+            if (last7DaysChats.length === 0) {
+                displayAnalysisResult([], '지난 7일간');
+                return;
+            }
+            const userCounts = countUserMessages(last7DaysChats);
+            const top5 = getTopUsers(userCounts);
+            displayAnalysisResult(top5, '지난 7일간');
+        }
+
+        function handleMonthlyStatus() {
+            if (parsedChatData.length === 0) return;
+            const now = new Date();
+            const monthlyChats = parsedChatData.filter(chat => {
+                const chatDate = new Date(chat.Timestamp);
+                return chatDate.getFullYear() === now.getFullYear() && chatDate.getMonth() === now.getMonth();
+            });
+            if (monthlyChats.length === 0) {
+                displayWarningList([], '이번 달');
+                return;
+            }
+            const userCounts = countUserMessages(monthlyChats);
+            const warningUsers = Object.entries(userCounts)
+                .filter(([user, count]) => count < 50)
+                .sort((a, b) => a[1] - b[1]); // 대화 수 오름차순으로 정렬
+            displayWarningList(warningUsers, '이번 달');
+        }
+        
+        function countUserMessages(chatList) {
+            const userCounts = {};
+            chatList.forEach(chat => {
+                if (chat.User !== '시스템' && chat.User !== '관리자') {
+                    userCounts[chat.User] = (userCounts[chat.User] || 0) + 1;
+                }
+            });
+            return userCounts;
+        }
+
+        function getTopUsers(userCounts, count = 5) {
+            return Object.entries(userCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, count);
+        }
+
+        function displayAnalysisResult(ranking, dateString) {
+            analysisResultEl.innerHTML = '';
+            const title = document.createElement('h2');
+            title.className = 'text-xl font-bold mb-3 text-gray-800 border-b pb-2';
+            title.textContent = `👑 ${dateString}의 대화왕 순위 TOP 5`;
+            analysisResultEl.appendChild(title);
+            if (ranking.length === 0) {
+                const noData = document.createElement('p');
+                noData.className = 'text-gray-500 mt-4';
+                noData.textContent = `${dateString} 대화 기록이 없습니다.`;
+                analysisResultEl.appendChild(noData);
+                return;
+            }
+            const list = document.createElement('ol');
+            list.className = 'space-y-2';
+            const medals = ['🥇', '🥈', '🥉'];
+            ranking.forEach(([user, count], index) => {
+                const item = document.createElement('li');
+                item.className = 'result-item flex items-center justify-between p-2 rounded-lg bg-gray-50';
+                item.style.animationDelay = `${index * 100}ms`;
+                const rank = medals[index] || `${index + 1}.`;
+                item.innerHTML = `
+                    <div class="flex items-center">
+                        <span class="font-bold w-8 text-lg">${rank}</span>
+                        <span class="text-gray-700">${user}</span>
+                    </div>
+                    <span class="font-semibold text-blue-600">${count}회</span>
+                `;
+                list.appendChild(item);
+            });
+            analysisResultEl.appendChild(list);
+        }
+
+        function displayWarningList(warningList, dateString) {
+            analysisResultEl.innerHTML = '';
+            const title = document.createElement('h2');
+            title.className = 'text-xl font-bold mb-3 text-red-600 border-b pb-2';
+            title.textContent = `☕️ 더 친해져요 (${dateString} 50회 미만)`;
+            analysisResultEl.appendChild(title);
+            if (warningList.length === 0) {
+                const allActive = document.createElement('p');
+                allActive.className = 'text-gray-500 mt-4';
+                allActive.textContent = `모든 멤버가 50회 이상 대화했습니다. 훌륭해요!`;
+                analysisResultEl.appendChild(allActive);
+                return;
+            }
+            const list = document.createElement('ul');
+            list.className = 'space-y-2';
+            warningList.forEach(([user, count], index) => {
+                const item = document.createElement('li');
+                item.className = 'result-item flex items-center justify-between p-2 rounded-lg bg-red-50';
+                item.style.animationDelay = `${index * 100}ms`;
+                item.innerHTML = `
+                    <span class="text-gray-700">${user}</span>
+                    <span class="font-semibold text-red-600">${count}회</span>
+                `;
+                list.appendChild(item);
+            });
+            analysisResultEl.appendChild(list);
+        }
+
+        function handleDownload() {
+            if (!csvContent || downloadBtn.disabled) return;
+            const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'KakaoTalk_chat_log.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        function resetUI(resetFileName = true) {
+            if (resetFileName) {
+                fileNameEl.textContent = '';
+                fileInput.value = '';
+            }
+            downloadBtn.disabled = true;
+            analyzeDailyBtn.disabled = true;
+            analyzeWeeklyBtn.disabled = true;
+            analyzeMonthlyStatusBtn.disabled = true;
+            messageEl.textContent = '';
+            analysisResultEl.innerHTML = '';
+            parsedChatData = [];
+            csvContent = '';
+        }
+
+        function parseKakaoTalkLogExcelSafe(fileContent) {
+            const chatData = [];
+            if (!fileContent) return chatData;
+            const chatPattern = /^(\d{4}년 \d{1,2}월 \d{1,2}일) (오전|오후) (\d{1,2}:\d{2}),\s*(.*?)\s*:\s*(.*)/;
+            const systemPattern = /^(\d{4}년 \d{1,2}월 \d{1,2}일) (오전|오후) (\d{1,2}:\d{2}),\s*(.*(?:님이 들어왔습니다|님을 내보냈습니다|님이 나갔습니다)\.?)/;
+            const adminPattern = /^(\d{4}년 \d{1,2}월 \d{1,2}일) (오전|오후) (\d{1,2}:\d{2}),\s*(관리자가 \d+개의 메시지를 가렸습니다\.)/;
+            const dateSeparatorPattern = /^-+\s*\d{4}년 \d{1,2}월 \d{1,2}일\s.*-+$/;
+            const timestampOnlyPattern = /^\d{4}년 \d{1,2}월 \d{1,2}일 (오전|오후) \d{1,2}:\d{2}$/;
+            let currentMessageInfo = null;
+            const lines = fileContent.split('\n');
+            const formatTimestamp = (dateStr, amPmStr, timeStr) => {
+                const datePart = dateStr.match(/(\d{4})년 (\d{1,2})월 (\d{1,2})일/);
+                const year = parseInt(datePart[1], 10);
+                const month = parseInt(datePart[2], 10) - 1;
+                const day = parseInt(datePart[3], 10);
+                let [hour, minute] = timeStr.split(':').map(num => parseInt(num, 10));
+                if (amPmStr === '오후' && hour !== 12) hour += 12;
+                if (amPmStr === '오전' && hour === 12) hour = 0;
+                return new Date(year, month, day, hour, minute);
+            };
+            const excelSafeText = (text) => {
+                if (/^\d{1,2}[/-]\d{1,2}$/.test(text) || /^\d{1,2}-\d{1,2}$/.test(text)) return "'" + text;
+                return text;
+            };
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (!trimmedLine) continue;
+                const adminMatch = trimmedLine.match(adminPattern);
+                const systemMatch = trimmedLine.match(systemPattern);
+                const chatMatch = trimmedLine.match(chatPattern);
+                const isNewMessageLine = adminMatch || systemMatch || chatMatch;
+                const isIgnorableLine = dateSeparatorPattern.test(trimmedLine) || timestampOnlyPattern.test(trimmedLine);
+                if (isNewMessageLine) {
+                    if (currentMessageInfo) chatData.push(currentMessageInfo);
+                    currentMessageInfo = null;
+                    if (adminMatch) {
+                        const [, date, amPm, time, message] = adminMatch;
+                        const timestamp = formatTimestamp(date, amPm, time);
+                        chatData.push({ Timestamp: timestamp, User: '관리자', Message: message });
+                    } else if (systemMatch) {
+                        const [, date, amPm, time, message] = systemMatch;
+                        const timestamp = formatTimestamp(date, amPm, time);
+                        chatData.push({ Timestamp: timestamp, User: '시스템', Message: message });
+                    } else if (chatMatch) {
+                        const [, date, amPm, time, user, message] = chatMatch;
+                        const timestamp = formatTimestamp(date, amPm, time);
+                        const safeMessage = excelSafeText(message);
+                        currentMessageInfo = { Timestamp: timestamp, User: user, Message: safeMessage };
+                    }
+                } else if (!isIgnorableLine && currentMessageInfo) {
+                    currentMessageInfo.Message += '\n' + trimmedLine;
+                }
+            }
+            if (currentMessageInfo) chatData.push(currentMessageInfo);
+            return chatData;
+        }
+        
+        function convertToCSV(data) {
+            if (!data || data.length === 0) return "";
+            const headers = Object.keys(data[0]);
+            const csvRows = [headers.join(',')];
+            for (const row of data) {
+                const values = headers.map(header => {
+                    let cell = row[header];
+                    if (cell instanceof Date) cell = cell.toISOString();
+                    if (typeof cell === 'string' && (cell.includes(',') || cell.includes('\n') || cell.includes('"'))) {
+                        cell = `"${cell.replace(/"/g, '""')}"`;
+                    }
+                    return cell;
+                });
+                csvRows.push(values.join(','));
+            }
+            return csvRows.join('\n');
+        }
+    </script>
+</body>
+</html>
