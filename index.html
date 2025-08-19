@@ -37,7 +37,6 @@
         <input type="file" id="fileInput" accept=".txt" class="hidden">
         <p id="fileName" class="text-sm text-gray-600 mt-3 h-5"></p>
 
-        <!-- API 키 입력 섹션 -->
         <div class="mt-6 text-left border-t pt-4">
             <label for="apiKeyInput" class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key</label>
             <div class="relative">
@@ -76,7 +75,6 @@
         
         <div id="message" class="mt-4 text-sm h-5"></div>
 
-        <!-- 개인 리포트 섹션 -->
         <div class="mt-6 text-left border-t pt-4">
             <div class="flex gap-2">
                 <input type="text" id="userInput" class="w-2/5 p-2 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500" placeholder="닉네임 입력">
@@ -85,13 +83,13 @@
             <p id="userSearchFeedback" class="text-sm text-gray-600 mt-1 h-5"></p>
         </div>
 
-        <!-- 분석 결과가 표시될 영역 -->
         <div id="analysisResult" class="mt-6 text-left"></div>
     </div>
 
     <script>
         // --- 전역 변수 ---
         let parsedChatData = [];
+        let fullParsedChatData = []; // 전체 대화 기록 저장용
         let csvContent = '';
 
         // --- DOM 요소 ---
@@ -167,13 +165,15 @@
             const reader = new FileReader();
             reader.onload = (e) => {
                 try {
-                    let fullChatData = parseKakaoTalkLogExcelSafe(e.target.result);
+                    // 1. 전체 데이터를 파싱하여 fullParsedChatData에 저장
+                    fullParsedChatData = parseKakaoTalkLogExcelSafe(e.target.result);
                     
                     const sevenDaysAgo = new Date();
                     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
                     sevenDaysAgo.setHours(0, 0, 0, 0);
                     
-                    parsedChatData = fullChatData.filter(chat => new Date(chat.Timestamp) >= sevenDaysAgo);
+                    // 2. 다른 분석을 위해 최근 7일치 데이터만 필터링하여 parsedChatData에 저장
+                    parsedChatData = fullParsedChatData.filter(chat => new Date(chat.Timestamp) >= sevenDaysAgo);
 
                     if (parsedChatData.length > 0) {
                         csvContent = convertToCSV(parsedChatData);
@@ -208,7 +208,8 @@
                 return;
             }
 
-            const allUsers = [...new Set(parsedChatData.map(chat => chat.User).filter(user => user !== '시스템' && user !== '관리자'))];
+            // 3. 개인 리포트에서는 전체 데이터(fullParsedChatData)를 사용
+            const allUsers = [...new Set(fullParsedChatData.map(chat => chat.User).filter(user => user !== '시스템' && user !== '관리자'))];
             const matchedUsers = allUsers.filter(user => user.startsWith(searchTerm));
 
             if (matchedUsers.length === 0) {
@@ -226,18 +227,17 @@
             userSearchFeedback.textContent = `✅ '${targetUser}' 님의 리포트를 생성합니다...`;
             analysisResultEl.innerHTML = '<p class="text-center">리포트 생성 중... 🤖</p>';
 
-            const userMessages = parsedChatData.filter(chat => chat.User === targetUser);
+            const userMessages = fullParsedChatData.filter(chat => chat.User === targetUser);
             
             const responders = {};
-            for (let i = 0; i < parsedChatData.length; i++) {
-                if (parsedChatData[i].User === targetUser) {
-                    // 다음 3개의 메시지를 확인
+            for (let i = 0; i < fullParsedChatData.length; i++) {
+                if (fullParsedChatData[i].User === targetUser) {
                     for (let j = 1; j <= 3; j++) {
-                        if (i + j < parsedChatData.length) {
-                            const nextChat = parsedChatData[i + j];
+                        if (i + j < fullParsedChatData.length) {
+                            const nextChat = fullParsedChatData[i + j];
                             if (nextChat.User !== targetUser && nextChat.User !== '시스템' && nextChat.User !== '관리자') {
                                 responders[nextChat.User] = (responders[nextChat.User] || 0) + 1;
-                                break; // 한 번의 반응만 카운트
+                                break; 
                             }
                         }
                     }
@@ -259,8 +259,9 @@
                 throw new Error("Gemini API 키를 입력하고 저장해주세요.");
             }
 
+            // 4. 프롬프트 내용을 '전체' 대화 기록으로 수정
             const prompt = `
-                '${targetUser}' 님의 최근 7일간 카카오톡 대화 기록을 분석해서 아래 형식에 맞춰 리포트를 작성해줘.
+                '${targetUser}' 님의 전체 카카오톡 대화 기록을 분석해서 아래 형식에 맞춰 리포트를 작성해줘.
                 
                 **분석할 내용:**
                 1. 총 대화 횟수: ${userMessages.length}회
@@ -683,6 +684,7 @@
             messageEl.textContent = '';
             analysisResultEl.innerHTML = '';
             parsedChatData = [];
+            fullParsedChatData = []; // 리셋 시 전체 데이터도 초기화
             csvContent = '';
         }
 
