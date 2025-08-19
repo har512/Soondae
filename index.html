@@ -221,7 +221,7 @@
             const top5 = getTopUsers(userCounts);
 
             displayAnalysisResult(top5, analysisDateString, true);
-            displayMemberChanges(chatsForRanking); // 동사무소 알림 표시 함수 호출
+            displayMemberChanges(chatsForRanking);
 
             const twentyFourHoursAgo = new Date();
             twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
@@ -411,8 +411,66 @@
                     noticeSection.innerHTML += `<p class="text-red-600 text-sm">😢 ${leftMembers.join(', ')} 님이 전출가셨어요.</p>`;
                 }
             }
+            
+            const shareButtonContainer = document.createElement('div');
+            shareButtonContainer.className = 'mt-6 text-center';
+            const shareButton = document.createElement('button');
+            shareButton.id = 'shareBriefingBtn';
+            shareButton.className = 'bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition-colors';
+            shareButton.textContent = '브리핑 내용 공유하기';
+            shareButton.onclick = handleShareBriefing;
+            shareButtonContainer.appendChild(shareButton);
+
             analysisResultEl.appendChild(noticeSection);
+            analysisResultEl.appendChild(shareButtonContainer);
         }
+        
+        function handleShareBriefing() {
+            const briefingContent = [];
+            
+            const title = analysisResultEl.querySelector('h2').textContent;
+            briefingContent.push(`[${title}]`);
+            
+            const rankingList = analysisResultEl.querySelectorAll('ol > li');
+            rankingList.forEach(item => {
+                const rank = item.querySelector('span:first-child').textContent;
+                const user = item.querySelector('div > div > span:last-child').textContent;
+                const count = item.querySelector('span:last-child').textContent;
+                const summary = item.querySelector('.summary-content')?.textContent || '(요약 없음)';
+                
+                briefingContent.push(`\n${rank} ${user} (${count})`);
+                briefingContent.push(`${summary}`);
+            });
+
+            const noticeTitle = analysisResultEl.querySelector('h3')?.textContent;
+            if (noticeTitle) {
+                briefingContent.push('\n---');
+                briefingContent.push(`[${noticeTitle}]`);
+                const notices = analysisResultEl.querySelectorAll('div > p');
+                notices.forEach(p => {
+                    briefingContent.push(p.textContent);
+                });
+            }
+
+            const textToCopy = briefingContent.join('\n');
+            
+            // 임시 textarea를 사용한 복사 방법 (iframe 호환성)
+            const textArea = document.createElement("textarea");
+            textArea.value = textToCopy;
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                messageEl.textContent = '✅ 브리핑 내용이 복사되었습니다!';
+                messageEl.className = 'mt-4 text-sm h-5 text-green-600';
+            } catch (err) {
+                messageEl.textContent = '⚠️ 복사에 실패했습니다.';
+                messageEl.className = 'mt-4 text-sm h-5 text-red-600';
+            }
+            document.body.removeChild(textArea);
+        }
+
 
         function displayWarningList(warningList, dateString) {
             analysisResultEl.innerHTML = '';
