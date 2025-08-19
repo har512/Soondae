@@ -76,6 +76,15 @@
         
         <div id="message" class="mt-4 text-sm h-5"></div>
 
+        <!-- 개인 리포트 섹션 -->
+        <div class="mt-6 text-left border-t pt-4">
+            <div class="flex gap-2">
+                <input type="text" id="userInput" class="flex-grow p-2 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500" placeholder="닉네임 입력">
+                <button id="personalReportBtn" class="bg-pink-300 text-white font-bold py-2 px-4 rounded-lg hover:bg-pink-400 disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap">이사람이 궁금해</button>
+            </div>
+            <p id="userSearchFeedback" class="text-sm text-gray-600 mt-1 h-5"></p>
+        </div>
+
         <!-- 분석 결과가 표시될 영역 -->
         <div id="analysisResult" class="mt-6 text-left"></div>
     </div>
@@ -99,6 +108,9 @@
         const toggleApiKeyBtn = document.getElementById('toggleApiKey');
         const eyeOpenIcon = document.getElementById('eye-icon-open');
         const eyeClosedIcon = document.getElementById('eye-icon-closed');
+        const userInput = document.getElementById('userInput');
+        const personalReportBtn = document.getElementById('personalReportBtn');
+        const userSearchFeedback = document.getElementById('userSearchFeedback');
 
         // --- 초기화 ---
         document.addEventListener('DOMContentLoaded', loadApiKey);
@@ -111,6 +123,7 @@
         analyzeMonthlyStatusBtn.addEventListener('click', handleMonthlyStatus);
         saveApiKeyBtn.addEventListener('click', saveApiKey);
         toggleApiKeyBtn.addEventListener('click', toggleApiKeyVisibility);
+        personalReportBtn.addEventListener('click', handlePersonalReport);
 
         // --- 함수 정의 ---
 
@@ -168,6 +181,7 @@
                         analyzeDailyBtn.disabled = false;
                         analyzeWeeklyBtn.disabled = false;
                         analyzeMonthlyStatusBtn.disabled = false;
+                        personalReportBtn.disabled = false;
                         messageEl.textContent = `🎉 최근 7일간 ${parsedChatData.length}개 메시지 처리 완료!`;
                         messageEl.className = 'mt-4 text-sm h-5 text-green-600';
                     } else {
@@ -187,6 +201,121 @@
             reader.readAsText(file, 'UTF-8');
         }
         
+        async function handlePersonalReport() {
+            const searchTerm = userInput.value.trim();
+            if (!searchTerm) {
+                userSearchFeedback.textContent = '닉네임을 입력해주세요.';
+                return;
+            }
+
+            const allUsers = [...new Set(parsedChatData.map(chat => chat.User).filter(user => user !== '시스템' && user !== '관리자'))];
+            const matchedUsers = allUsers.filter(user => user.startsWith(searchTerm));
+
+            if (matchedUsers.length === 0) {
+                userSearchFeedback.textContent = '해당하는 사용자를 찾을 수 없습니다.';
+                analysisResultEl.innerHTML = '';
+                return;
+            }
+            if (matchedUsers.length > 1) {
+                userSearchFeedback.textContent = '여러 명이 검색됩니다. 더 정확하게 입력해주세요.';
+                analysisResultEl.innerHTML = '';
+                return;
+            }
+
+            const targetUser = matchedUsers[0];
+            userSearchFeedback.textContent = `✅ '${targetUser}' 님의 리포트를 생성합니다...`;
+            analysisResultEl.innerHTML = '<p class="text-center">리포트 생성 중... 🤖</p>';
+
+            const userMessages = parsedChatData.filter(chat => chat.User === targetUser);
+            
+            const responders = {};
+            for (let i = 0; i < parsedChatData.length; i++) {
+                if (parsedChatData[i].User === targetUser) {
+                    // 다음 3개의 메시지를 확인
+                    for (let j = 1; j <= 3; j++) {
+                        if (i + j < parsedChatData.length) {
+                            const nextChat = parsedChatData[i + j];
+                            if (nextChat.User !== targetUser && nextChat.User !== '시스템' && nextChat.User !== '관리자') {
+                                responders[nextChat.User] = (responders[nextChat.User] || 0) + 1;
+                                break; // 한 번의 반응만 카운트
+                            }
+                        }
+                    }
+                }
+            }
+            const topResponders = Object.entries(responders).sort((a, b) => b[1] - a[1]).slice(0, 3).map(item => item[0]);
+
+            try {
+                const report = await generatePersonalReport(targetUser, userMessages, topResponders);
+                displayPersonalReport(targetUser, report);
+            } catch (error) {
+                analysisResultEl.innerHTML = `<p class="text-red-500">${error.message}</p>`;
+            }
+        }
+
+        async function generatePersonalReport(targetUser, userMessages, topResponders) {
+            const apiKey = apiKeyInput.value.trim() || localStorage.getItem('geminiApiKey');
+            if (!apiKey) {
+                throw new Error("Gemini API 키를 입력하고 저장해주세요.");
+            }
+
+            const prompt = `
+                '${targetUser}' 님의 최근 7일간 카카오톡 대화 기록을 분석해서 아래 형식에 맞춰 리포트를 작성해줘.
+                
+                **분석할 내용:**
+                1. 총 대화 횟수: ${userMessages.length}회
+                2. 주요 대화 주제: 아래 대화 내용을 바탕으로 핵심 주제를 3가지 정도로 요약해줘.
+                3. 소울메이트 분석: 이 사람의 말에 가장 많이 반응한 상위 3명은 다음과 같아: ${topResponders.join(', ')}. 이 사실을 바탕으로 상호작용에 대해 재밌지만 간략하게 코멘트해줘.
+
+                **참고 대화 내용:**
+                ---
+                ${userMessages.map(m => m.Message).join('\n').substring(0, 4000)}
+                ---
+
+                **출력 형식 (반드시 이 형식에 맞춰서 작성):**
+                ### 💬 총 대화 횟수
+                - 총 ${userMessages.length}회 대화에 참여했어요.
+
+                ### 📜 주요 대화 주제
+                - [주제 1 요약]
+                - [주제 2 요약]
+                - [주제 3 요약]
+
+                ### 💖 소울메이트 분석
+                - [상호작용에 대한 재미있는 코멘트]
+            `;
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error(`API 호출 실패: ${response.status}`);
+            const result = await response.json();
+            if (result.candidates && result.candidates.length > 0) {
+                return result.candidates[0].content.parts[0].text;
+            } else {
+                throw new Error("API 응답 형식이 올바르지 않습니다.");
+            }
+        }
+
+        function displayPersonalReport(targetUser, report) {
+            analysisResultEl.innerHTML = '';
+            const title = document.createElement('h2');
+            title.className = 'text-xl font-bold mb-3 text-gray-800 border-b pb-2';
+            title.textContent = `📊 ${targetUser}님 개인 리포트`;
+            
+            const content = document.createElement('div');
+            content.className = 'summary-content text-left';
+            content.innerHTML = report.replace(/### (.*)/g, '<h3 class="text-lg font-bold mt-4 mb-2 text-gray-700">$1</h3>')
+                                      .replace(/^- (.*)/gm, '<p class="ml-2">- $1</p>');
+            
+            analysisResultEl.appendChild(title);
+            analysisResultEl.appendChild(content);
+        }
+
         async function handleDailyBriefing() {
             if (parsedChatData.length === 0) return;
             
@@ -262,7 +391,7 @@
                 throw new Error("Gemini API 키를 입력하고 저장해주세요.");
             }
             
-            const prompt = `${userName}님의 최근 대화 내용입니다. 이 내용을 바탕으로 이모티콘을 섞어서 친구에게 말하듯 위트있게 3줄 이내로 요약해주세요:\n\n---\n${userChats.substring(0, 3000)}\n---`;
+            const prompt = `${userName}님의 최근 대화 내용입니다. 이 내용을 바탕으로 이사람이 최근 어떤 내용으로 대화했는지 이모티콘을 섞어서 친구에게 말하듯 위트있게 3줄 이내로 요약해주세요:\n\n---\n${userChats.substring(0, 3000)}\n---`;
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
             
             const payload = { contents: [{ parts: [{ text: prompt }] }] };
@@ -300,7 +429,7 @@
         function handleWeeklyAnalysis() {
             if (parsedChatData.length === 0) return;
             const userCounts = countUserMessages(parsedChatData);
-            const top20 = getTopUsers(userCounts, 20); // [변경] 20위까지 추출
+            const top20 = getTopUsers(userCounts, 20);
             displayAnalysisResult(top20, '지난 7일간');
         }
 
@@ -353,7 +482,7 @@
             if (isBriefing && briefingDate) {
                 titleText = `오늘의 순대 브리핑 (${formatDate(briefingDate)})`;
             } else {
-                titleText = `👑 ${dateString}의 대화왕 순위 TOP ${ranking.length}`; // [변경] 순위 숫자를 동적으로 표시
+                titleText = `👑 ${dateString}의 대화왕 순위 TOP ${ranking.length}`;
             }
 
             const title = document.createElement('h2');
@@ -537,6 +666,7 @@
             analyzeDailyBtn.disabled = true;
             analyzeWeeklyBtn.disabled = true;
             analyzeMonthlyStatusBtn.disabled = true;
+            personalReportBtn.disabled = true;
             messageEl.textContent = '';
             analysisResultEl.innerHTML = '';
             parsedChatData = [];
