@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>카카오톡 대화 분석기</title>
+    <title>슬기로운 순대생활 분석기</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.8/dist/web/static/pretendard.css">
     <style>
@@ -28,7 +28,7 @@
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
     <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-lg text-center">
-        <h1 class="text-2xl font-bold mb-2 text-gray-800">카카오톡 대화 분석기</h1>
+        <h1 class="text-2xl font-bold mb-2 text-gray-800">슬기로운 순대생활 분석기</h1>
         <p class="text-gray-500 mb-6">내보내기한 카카오톡 대화(.txt) 파일을 분석합니다.</p>
         
         <label for="fileInput" class="w-full cursor-pointer bg-yellow-300 text-gray-900 font-bold py-3 px-4 rounded-lg hover:bg-yellow-400 transition-colors duration-300 inline-block">
@@ -154,18 +154,24 @@
             const reader = new FileReader();
             reader.onload = (e) => {
                 try {
-                    const fileContent = e.target.result;
-                    parsedChatData = parseKakaoTalkLogExcelSafe(fileContent);
+                    let fullChatData = parseKakaoTalkLogExcelSafe(e.target.result);
+                    
+                    const sevenDaysAgo = new Date();
+                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                    sevenDaysAgo.setHours(0, 0, 0, 0);
+                    
+                    parsedChatData = fullChatData.filter(chat => new Date(chat.Timestamp) >= sevenDaysAgo);
+
                     if (parsedChatData.length > 0) {
                         csvContent = convertToCSV(parsedChatData);
                         downloadBtn.disabled = false;
                         analyzeDailyBtn.disabled = false;
                         analyzeWeeklyBtn.disabled = false;
                         analyzeMonthlyStatusBtn.disabled = false;
-                        messageEl.textContent = `🎉 ${parsedChatData.length}개 메시지 처리 완료!`;
+                        messageEl.textContent = `🎉 최근 7일간 ${parsedChatData.length}개 메시지 처리 완료!`;
                         messageEl.className = 'mt-4 text-sm h-5 text-green-600';
                     } else {
-                        throw new Error("처리할 데이터가 없습니다. 파일 형식을 확인해주세요.");
+                        throw new Error("최근 7일간의 대화 기록이 없습니다.");
                     }
                 } catch (err) {
                     resetUI(false);
@@ -185,7 +191,8 @@
             if (parsedChatData.length === 0) return;
             
             let chatsForRanking = [];
-            let analysisDateString = '';
+            let analysisDate = null;
+
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             const todaysChats = parsedChatData.filter(chat => {
@@ -196,7 +203,7 @@
 
             if (todaysChats.length > 0) {
                 chatsForRanking = todaysChats;
-                analysisDateString = '오늘';
+                analysisDate = today;
             } else {
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
@@ -208,7 +215,7 @@
                 });
                 if (yesterdaysChats.length > 0) {
                     chatsForRanking = yesterdaysChats;
-                    analysisDateString = '어제';
+                    analysisDate = yesterday;
                 }
             }
 
@@ -220,7 +227,7 @@
             const userCounts = countUserMessages(chatsForRanking);
             const top5 = getTopUsers(userCounts);
 
-            displayAnalysisResult(top5, analysisDateString, true);
+            displayAnalysisResult(top5, null, true, analysisDate);
             displayMemberChanges(chatsForRanking);
 
             const twentyFourHoursAgo = new Date();
@@ -292,18 +299,9 @@
 
         function handleWeeklyAnalysis() {
             if (parsedChatData.length === 0) return;
-            const now = new Date();
-            const sevenDaysAgo = new Date(now);
-            sevenDaysAgo.setDate(now.getDate() - 7);
-            sevenDaysAgo.setHours(0, 0, 0, 0);
-            const last7DaysChats = parsedChatData.filter(chat => new Date(chat.Timestamp) >= sevenDaysAgo);
-            if (last7DaysChats.length === 0) {
-                displayAnalysisResult([], '지난 7일간');
-                return;
-            }
-            const userCounts = countUserMessages(last7DaysChats);
-            const top5 = getTopUsers(userCounts);
-            displayAnalysisResult(top5, '지난 7일간');
+            const userCounts = countUserMessages(parsedChatData);
+            const top20 = getTopUsers(userCounts, 20); // [변경] 20위까지 추출
+            displayAnalysisResult(top20, '지난 7일간');
         }
 
         function handleMonthlyStatus() {
@@ -339,14 +337,30 @@
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, count);
         }
+        
+        function formatDate(date) {
+            const year = date.getFullYear().toString().slice(-2);
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()];
+            return `${year}.${month}.${day} (${dayOfWeek})`;
+        }
 
-        function displayAnalysisResult(ranking, dateString, isBriefing = false) {
+        function displayAnalysisResult(ranking, dateString, isBriefing = false, briefingDate = null) {
             analysisResultEl.innerHTML = '';
-            const titleText = isBriefing ? `오늘의 브리핑 (${dateString})` : `👑 ${dateString}의 대화왕 순위 TOP 5`;
+            
+            let titleText = '';
+            if (isBriefing && briefingDate) {
+                titleText = `오늘의 순대 브리핑 (${formatDate(briefingDate)})`;
+            } else {
+                titleText = `👑 ${dateString}의 대화왕 순위 TOP ${ranking.length}`; // [변경] 순위 숫자를 동적으로 표시
+            }
+
             const title = document.createElement('h2');
             title.className = 'text-xl font-bold mb-3 text-gray-800 border-b pb-2';
             title.textContent = titleText;
             analysisResultEl.appendChild(title);
+
             if (ranking.length === 0) {
                 const noData = document.createElement('p');
                 noData.className = 'text-gray-500 mt-4';
@@ -394,11 +408,12 @@
             });
 
             const noticeSection = document.createElement('div');
+            noticeSection.id = 'notice-section';
             noticeSection.className = 'mt-6 pt-4 border-t';
             
             const title = document.createElement('h3');
             title.className = 'text-lg font-bold mb-2 text-gray-700';
-            title.textContent = '🏠 동사무소 알림';
+            title.textContent = '🏠 순대 동사무소 알림';
             noticeSection.appendChild(title);
 
             if (newMembers.length === 0 && leftMembers.length === 0) {
@@ -433,20 +448,21 @@
             
             const rankingList = analysisResultEl.querySelectorAll('ol > li');
             rankingList.forEach(item => {
-                const rank = item.querySelector('span:first-child').textContent;
-                const user = item.querySelector('div > div > span:last-child').textContent;
-                const count = item.querySelector('span:last-child').textContent;
+                const rank = item.querySelector('.font-bold').textContent;
+                const user = item.querySelector('.text-gray-700').textContent;
+                const count = item.querySelector('.font-semibold').textContent;
                 const summary = item.querySelector('.summary-content')?.textContent || '(요약 없음)';
                 
                 briefingContent.push(`\n${rank} ${user} (${count})`);
                 briefingContent.push(`${summary}`);
             });
 
-            const noticeTitle = analysisResultEl.querySelector('h3')?.textContent;
-            if (noticeTitle) {
+            const noticeSection = analysisResultEl.querySelector('#notice-section');
+            if (noticeSection) {
+                const noticeTitle = noticeSection.querySelector('h3')?.textContent;
                 briefingContent.push('\n---');
                 briefingContent.push(`[${noticeTitle}]`);
-                const notices = analysisResultEl.querySelectorAll('div > p');
+                const notices = noticeSection.querySelectorAll('p');
                 notices.forEach(p => {
                     briefingContent.push(p.textContent);
                 });
@@ -454,7 +470,6 @@
 
             const textToCopy = briefingContent.join('\n');
             
-            // 임시 textarea를 사용한 복사 방법 (iframe 호환성)
             const textArea = document.createElement("textarea");
             textArea.value = textToCopy;
             document.body.appendChild(textArea);
