@@ -37,6 +37,7 @@
         <input type="file" id="fileInput" accept=".txt" class="hidden">
         <p id="fileName" class="text-sm text-gray-600 mt-3 h-5"></p>
 
+        <!-- API 키 입력 섹션 -->
         <div class="mt-6 text-left border-t pt-4">
             <label for="apiKeyInput" class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key</label>
             <div class="relative">
@@ -75,6 +76,7 @@
         
         <div id="message" class="mt-4 text-sm h-5"></div>
 
+        <!-- 개인 리포트 섹션 -->
         <div class="mt-6 text-left border-t pt-4">
             <div class="flex gap-2">
                 <input type="text" id="userInput" class="w-2/5 p-2 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500" placeholder="닉네임 입력">
@@ -83,6 +85,7 @@
             <p id="userSearchFeedback" class="text-sm text-gray-600 mt-1 h-5"></p>
         </div>
 
+        <!-- 분석 결과가 표시될 영역 -->
         <div id="analysisResult" class="mt-6 text-left"></div>
     </div>
 
@@ -165,14 +168,12 @@
             const reader = new FileReader();
             reader.onload = (e) => {
                 try {
-                    // 1. 전체 데이터를 파싱하여 fullParsedChatData에 저장
                     fullParsedChatData = parseKakaoTalkLogExcelSafe(e.target.result);
                     
                     const sevenDaysAgo = new Date();
                     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
                     sevenDaysAgo.setHours(0, 0, 0, 0);
                     
-                    // 2. 다른 분석을 위해 최근 7일치 데이터만 필터링하여 parsedChatData에 저장
                     parsedChatData = fullParsedChatData.filter(chat => new Date(chat.Timestamp) >= sevenDaysAgo);
 
                     if (parsedChatData.length > 0) {
@@ -208,7 +209,6 @@
                 return;
             }
 
-            // 3. 개인 리포트에서는 전체 데이터(fullParsedChatData)를 사용
             const allUsers = [...new Set(fullParsedChatData.map(chat => chat.User).filter(user => user !== '시스템' && user !== '관리자'))];
             const matchedUsers = allUsers.filter(user => user.startsWith(searchTerm));
 
@@ -227,27 +227,43 @@
             userSearchFeedback.textContent = `✅ '${targetUser}' 님의 리포트를 생성합니다...`;
             analysisResultEl.innerHTML = '<p class="text-center">리포트 생성 중... 🤖</p>';
 
-            const userMessages = fullParsedChatData.filter(chat => chat.User === targetUser);
-            
-            const responders = {};
-            for (let i = 0; i < fullParsedChatData.length; i++) {
-                if (fullParsedChatData[i].User === targetUser) {
-                    for (let j = 1; j <= 3; j++) {
-                        if (i + j < fullParsedChatData.length) {
-                            const nextChat = fullParsedChatData[i + j];
-                            if (nextChat.User !== targetUser && nextChat.User !== '시스템' && nextChat.User !== '관리자') {
-                                responders[nextChat.User] = (responders[nextChat.User] || 0) + 1;
-                                break; 
+            try {
+                // 1. 전체 대화 기반 리포트 생성
+                const userMessages = fullParsedChatData.filter(chat => chat.User === targetUser);
+                const responders = {};
+                for (let i = 0; i < fullParsedChatData.length; i++) {
+                    if (fullParsedChatData[i].User === targetUser) {
+                        for (let j = 1; j <= 3; j++) {
+                            if (i + j < fullParsedChatData.length) {
+                                const nextChat = fullParsedChatData[i + j];
+                                if (nextChat.User !== targetUser && nextChat.User !== '시스템' && nextChat.User !== '관리자') {
+                                    responders[nextChat.User] = (responders[nextChat.User] || 0) + 1;
+                                    break; 
+                                }
                             }
                         }
                     }
                 }
-            }
-            const topResponders = Object.entries(responders).sort((a, b) => b[1] - a[1]).slice(0, 3).map(item => item[0]);
-
-            try {
+                const topResponders = Object.entries(responders).sort((a, b) => b[1] - a[1]).slice(0, 3).map(item => item[0]);
                 const report = await generatePersonalReport(targetUser, userMessages, topResponders);
                 displayPersonalReport(targetUser, report);
+
+                // 2. 최근 7일간 대화 기반 리포트 생성 및 추가
+                const recentUserMessages = parsedChatData.filter(chat => chat.User === targetUser);
+                
+                // 로딩 표시를 위한 컨테이너 생성
+                const recentTopicsContainer = document.createElement('div');
+                recentTopicsContainer.id = 'recent-topics-container';
+                recentTopicsContainer.innerHTML = `<p class="text-center mt-6">최근 7일간 토픽을 분석 중입니다... ⏳</p>`;
+                analysisResultEl.appendChild(recentTopicsContainer);
+
+                if (recentUserMessages.length > 0) {
+                    const recentTopicsReport = await generateRecentTopicsReport(targetUser, recentUserMessages);
+                    displayRecentTopicsReport(recentTopicsReport, recentTopicsContainer);
+                } else {
+                    recentTopicsContainer.innerHTML = ''; // 대화 없으면 로딩 메시지 제거
+                }
+
             } catch (error) {
                 analysisResultEl.innerHTML = `<p class="text-red-500">${error.message}</p>`;
             }
@@ -259,7 +275,6 @@
                 throw new Error("Gemini API 키를 입력하고 저장해주세요.");
             }
 
-            // 4. 프롬프트 내용을 '전체' 대화 기록으로 수정
             const prompt = `
                 '${targetUser}' 님의 전체 카카오톡 대화 기록을 분석해서 아래 형식에 맞춰 리포트를 작성해줘.
                 
@@ -311,7 +326,7 @@
             analysisResultEl.innerHTML = '';
             const title = document.createElement('h2');
             title.className = 'text-xl font-bold mb-3 text-gray-800 border-b pb-2';
-            title.textContent = `📊 ${targetUser}님 개인 리포트`;
+            title.textContent = `📊 ${targetUser}님 개인 리포트 (전체)`;
             
             const content = document.createElement('div');
             content.className = 'summary-content text-left';
@@ -321,6 +336,65 @@
             analysisResultEl.appendChild(title);
             analysisResultEl.appendChild(content);
         }
+
+        async function generateRecentTopicsReport(targetUser, recentUserMessages) {
+            const apiKey = apiKeyInput.value.trim() || localStorage.getItem('geminiApiKey');
+            if (!apiKey) {
+                throw new Error("Gemini API 키를 입력하고 저장해주세요.");
+            }
+
+            const prompt = `
+                '${targetUser}' 님의 최근 7일간의 대화 내용입니다. 이 내용을 바탕으로 최근 주요 관심사와 대화 주제가 무엇인지 1~2개 정도 재미있고 구체적으로 요약해주세요.
+
+                **참고 대화 내용 (최근 7일):**
+                ---
+                ${recentUserMessages.map(m => m.Message).join('\n').substring(0, 4000)}
+                ---
+
+                **출력 형식 (반드시 이 형식에 맞춰서 작성):**
+                - [최근 주제 1 제목]
+                [최근 주제 1 요약]
+
+                - [최근 주제 2 제목]
+                [최근 주제 2 요약]
+            `;
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error(`API 호출 실패: ${response.status}`);
+            const result = await response.json();
+            if (result.candidates && result.candidates.length > 0) {
+                return result.candidates[0].content.parts[0].text;
+            } else {
+                throw new Error("API 응답 형식이 올바르지 않습니다.");
+            }
+        }
+
+        function displayRecentTopicsReport(report, container) {
+            // 로딩 메시지를 지우고 새로운 내용으로 채움
+            container.innerHTML = '';
+
+            const divider = document.createElement('hr');
+            divider.className = 'my-6 border-t border-gray-200';
+            
+            const title = document.createElement('h2');
+            title.className = 'text-xl font-bold mb-3 text-gray-800 border-b pb-2';
+            title.textContent = `⏱️ ${userInput.value.trim()}님 최근 7일간 토픽`;
+            
+            const content = document.createElement('div');
+            content.className = 'summary-content text-left';
+            content.innerHTML = report.replace(/^- (.*)/gm, '<p class="ml-2">- $1</p>');
+            
+            container.appendChild(divider);
+            container.appendChild(title);
+            container.appendChild(content);
+        }
+
 
         async function handleDailyBriefing() {
             if (parsedChatData.length === 0) return;
@@ -684,7 +758,7 @@
             messageEl.textContent = '';
             analysisResultEl.innerHTML = '';
             parsedChatData = [];
-            fullParsedChatData = []; // 리셋 시 전체 데이터도 초기화
+            fullParsedChatData = [];
             csvContent = '';
         }
 
