@@ -59,7 +59,7 @@
             </button>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+        <div class="grid grid-cols-2 gap-4 mt-4">
             <button id="analyzeDailyBtn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed" disabled>
                 오늘의 브리핑
             </button>
@@ -78,9 +78,9 @@
 
         <!-- 개인 리포트 섹션 -->
         <div class="mt-6 text-left border-t pt-4">
-            <div class="flex flex-col sm:flex-row gap-2">
-                <input type="text" id="userInput" class="w-full sm:flex-grow p-2 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500" placeholder="닉네임 입력">
-                <button id="personalReportBtn" class="w-full sm:w-auto bg-pink-300 text-white font-bold py-2 px-4 rounded-lg hover:bg-pink-400 disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap">이사람이 궁금해</button>
+            <div class="flex gap-2">
+                <input type="text" id="userInput" class="w-2/5 p-2 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500" placeholder="닉네임 입력">
+                <button id="personalReportBtn" class="flex-grow bg-pink-300 text-white font-bold py-2 px-4 rounded-lg hover:bg-pink-400 disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap">이사람이 궁금해</button>
             </div>
             <p id="userSearchFeedback" class="text-sm text-gray-600 mt-1 h-5"></p>
         </div>
@@ -264,8 +264,8 @@
                 
                 **분석할 내용:**
                 1. 총 대화 횟수: ${userMessages.length}회
-                2. 주요 대화 주제: 아래 대화 내용을 바탕으로 핵심 주제를 3가지 정도로 재미있게 요약해줘.
-                3. 소울메이트 분석: 이 사람의 말에 가장 많이 반응한 상위 3명은 다음과 같아: ${topResponders.join(', ')}. 이 사실을 바탕으로 상호작용에 대해 재밌있게 코멘트해줘.
+                2. 주요 대화 주제: 아래 대화 내용을 바탕으로 핵심 주제를 3가지 정도로 재미있고 구체적으로 요약해줘.
+                3. 친한친구 분석: 이 사람의 말에 가장 많이 반응한 상위 3명은 다음과 같아: ${topResponders.join(', ')}. 이 사실을 바탕으로 상호작용에 대해 재밌있게 코멘트해줘.
 
                 **참고 대화 내용:**
                 ---
@@ -277,9 +277,14 @@
                 - 총 ${userMessages.length}회 대화에 참여했어요.
 
                 ### 📜 주요 대화 주제
-                - [주제 1 요약]
-                - [주제 2 요약]
-                - [주제 3 요약]
+                - [주제 1 제목]
+                [주제 1 요약]
+
+                - [주제 2 제목]
+                [주제 2 요약]
+                
+                - [주제 3 제목]
+                [주제 3 요약]
 
                 ### 🙋‍♂️ 친한친구 분석
                 - [상호작용에 대한 재미있는 코멘트]
@@ -391,7 +396,7 @@
                 throw new Error("Gemini API 키를 입력하고 저장해주세요.");
             }
             
-            const prompt = `${userName}님의 최근 대화 내용입니다. 이 내용을 바탕으로 이사람의 주요관심사와 대화주제가 뭐였는지 이모티콘을 섞어서 친구에게 말하듯 위트있게 3줄 이내로 요약해주세요:\n\n---\n${userChats.substring(0, 3000)}\n---`;
+            const prompt = `${userName}님의 최근 대화 내용입니다. 이 내용을 바탕으로 대화 주제가 뭐였는지 이모티콘을 섞어서 위트있게 3줄 이내로 요약해주세요. 대화맥락이 뭔지 모르는사람도 알아들을 수 있게 알려주세요:\n\n---\n${userChats.substring(0, 3000)}\n---`;
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
             
             const payload = { contents: [{ parts: [{ text: prompt }] }] };
@@ -545,16 +550,24 @@
             title.textContent = '🏠 순대 동사무소 알림';
             noticeSection.appendChild(title);
 
+            let noticeContent = '';
             if (newMembers.length === 0 && leftMembers.length === 0) {
-                noticeSection.innerHTML += `<p class="text-gray-500 text-sm">오늘은 인원 변동이 없어요!</p>`;
+                noticeContent += `<p class="text-gray-500 text-sm">오늘은 인원 변동이 없어요!</p>`;
             } else {
                 if (newMembers.length > 0) {
-                    noticeSection.innerHTML += `<p class="text-green-600 text-sm">🎉 ${newMembers.join(', ')} 님이 새로 전입왔어요!</p>`;
+                    noticeContent += `<p class="text-green-600 text-sm">🎉 새로 전입왔어요!</p>`;
+                    newMembers.forEach(name => {
+                        noticeContent += `<p class="text-green-600 text-sm pl-4">${name}</p>`;
+                    });
                 }
                 if (leftMembers.length > 0) {
-                    noticeSection.innerHTML += `<p class="text-red-600 text-sm">😢 ${leftMembers.join(', ')} 님이 전출가셨어요.</p>`;
+                    noticeContent += `<p class="text-red-600 text-sm mt-2">😢 전출가셨어요.</p>`;
+                    leftMembers.forEach(name => {
+                        noticeContent += `<p class="text-red-600 text-sm pl-4">${name}</p>`;
+                    });
                 }
             }
+            noticeSection.innerHTML += noticeContent;
             
             const shareButtonContainer = document.createElement('div');
             shareButtonContainer.className = 'mt-6 text-center';
@@ -750,4 +763,3 @@
     </script>
 </body>
 </html>
-
