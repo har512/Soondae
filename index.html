@@ -43,7 +43,7 @@
             <div class="relative">
                 <input type="password" id="apiKeyInput" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 pr-10" placeholder="API 키를 입력하고 저장하세요">
                 <button id="toggleApiKey" type="button" class="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700">
-                    <svg id="eye-icon-open" xmlns="http://www.w.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-eye" viewBox="0 0 16 16">
+                    <svg id="eye-icon-open" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-eye" viewBox="0 0 16 16">
                         <path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.816 1.201-2.085 2.224-3.655 2.893C9.879 11.832 8.12 12.5 6 12.5c-2.12 0-3.879-1.168-5.168-2.457A13.133 13.133 0 0 1 1.172 8z"/>
                         <path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z"/>
                     </svg>
@@ -458,7 +458,7 @@
                         try {
                             const summary = await generateSummary(user, userChats);
                             summaryElement.innerHTML = `<p class="summary-content">${summary}</p>`;
-                            await new Promise(res => setTimeout(res, 1000)); // [MODIFIED] 1초 딜레이 추가
+                            await new Promise(res => setTimeout(res, 1000)); // 1초 딜레이 추가
                         } catch (error) {
                             summaryElement.innerHTML = `<p class="text-red-500">${error.message}</p>`;
                         }
@@ -732,7 +732,6 @@
             hotTimeContainer.className = 'my-6 pt-4 border-t';
             hotTimeContainer.innerHTML = '<h3 class="text-lg font-bold mb-2 text-gray-700">🔥 HOT TIME 토픽 TOP 2</h3>';
             
-            // 순위 제목(h3) 앞에 삽입
             const rankingTitle = Array.from(analysisResultEl.querySelectorAll('h3')).pop();
             if (rankingTitle) {
                 analysisResultEl.insertBefore(hotTimeContainer, rankingTitle);
@@ -743,7 +742,7 @@
             const topSlots = timelineData.data
                 .map((count, index) => ({ count, index }))
                 .sort((a, b) => b.count - a.count)
-                .slice(0, 2) // [MODIFIED] 3개에서 2개로 변경
+                .slice(0, 2)
                 .filter(slot => slot.count > 0);
 
             if (topSlots.length === 0) {
@@ -762,10 +761,9 @@
             const startTime = new Date(startOfCurrentInterval.getTime() - 47 * 30 * 60 * 1000);
 
             for (const slot of topSlots) {
-                // [MODIFIED] 분석 시간대를 90분으로 확장
                 const originalSlotStartTime = new Date(startTime.getTime() + slot.index * 30 * 60 * 1000);
-                const slotStartTime = new Date(originalSlotStartTime.getTime() - 30 * 60 * 1000); // 30분 전
-                const slotEndTime = new Date(originalSlotStartTime.getTime() + 60 * 60 * 1000);   // 60분 후 (총 90분)
+                const slotStartTime = new Date(originalSlotStartTime.getTime() - 30 * 60 * 1000);
+                const slotEndTime = new Date(originalSlotStartTime.getTime() + 60 * 60 * 1000);
                 
                 const formatTime = (date) => `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                 const timeLabel = `${formatTime(slotStartTime)} ~ ${formatTime(slotEndTime)}`;
@@ -888,138 +886,102 @@
             }
             noticeSection.innerHTML += noticeContent;
             
+            // [MODIFIED] Share button container and buttons
             const shareButtonContainer = document.createElement('div');
-            shareButtonContainer.className = 'mt-6 text-center';
-            const shareButton = document.createElement('button');
-            shareButton.id = 'shareBriefingBtn';
-            shareButton.className = 'bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition-colors';
-            shareButton.textContent = '브리핑 내용 공유하기';
-            shareButton.onclick = handleShareBriefing;
-            shareButtonContainer.appendChild(shareButton);
+            shareButtonContainer.className = 'mt-6 flex gap-2 justify-center';
+
+            const shareTextButton = document.createElement('button');
+            shareTextButton.className = 'flex-1 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition-colors';
+            shareTextButton.textContent = '브리핑 텍스트 복사';
+            shareTextButton.onclick = handleShareText;
+
+            const shareImageButton = document.createElement('button');
+            shareImageButton.className = 'flex-1 bg-blue-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-600 transition-colors';
+            shareImageButton.textContent = '차트 이미지 복사';
+            shareImageButton.onclick = handleShareImage;
+            
+            shareButtonContainer.appendChild(shareTextButton);
+            shareButtonContainer.appendChild(shareImageButton);
 
             analysisResultEl.appendChild(noticeSection);
             analysisResultEl.appendChild(shareButtonContainer);
         }
         
-        async function handleShareBriefing() {
+        // [MODIFIED] Split sharing logic into separate functions
+        function generateBriefingText() {
+            const briefingContent = [];
+            const mainTitle = analysisResultEl.querySelector('h2').textContent;
+            briefingContent.push(`[${mainTitle}]`);
+
+            const hotTopicsContainer = analysisResultEl.querySelector('.my-6.pt-4.border-t');
+            if (hotTopicsContainer) {
+                briefingContent.push(`\n---`);
+                briefingContent.push(`[🔥 HOT TIME 토픽 TOP 2]`);
+                hotTopicsContainer.querySelectorAll('.bg-yellow-50').forEach(item => {
+                    const time = item.querySelector('.font-bold').textContent;
+                    const summary = item.querySelector('.summary-content').textContent;
+                    briefingContent.push(`\n${time}\n${summary}`);
+                });
+            }
+
+            briefingContent.push('\n---');
+            briefingContent.push('[오늘의 대화왕 👑]');
+            const rankingList = analysisResultEl.querySelectorAll('ol > li');
+            rankingList.forEach(item => {
+                const rank = item.querySelector('.font-bold').textContent.trim();
+                const user = item.querySelector('.text-gray-700').textContent;
+                const count = item.querySelector('.font-semibold').textContent;
+                const summary = item.querySelector('.summary-content')?.textContent || '(요약 없음)';
+                briefingContent.push(`\n${rank} ${user} (${count})`);
+                briefingContent.push(`${summary}`);
+            });
+
+            const noticeSection = analysisResultEl.querySelector('#notice-section');
+            if (noticeSection) {
+                const noticeTitle = noticeSection.querySelector('h3')?.textContent;
+                briefingContent.push('\n---');
+                briefingContent.push(`[${noticeTitle}]`);
+                const notices = noticeSection.querySelectorAll('p');
+                notices.forEach(p => {
+                    briefingContent.push(p.textContent);
+                });
+            }
+            return briefingContent.join('\n');
+        }
+
+        async function generateBriefingImageBlob() {
+            if (!timelineChartInstance) return null;
+            
+            const originalCanvas = timelineChartInstance.canvas;
+            const titleText = '📈 지난 24시간 대화량 추이';
+            const titleHeight = 40;
+            
+            const newCanvas = document.createElement('canvas');
+            newCanvas.width = originalCanvas.width;
+            newCanvas.height = originalCanvas.height + titleHeight;
+            const ctx = newCanvas.getContext('2d');
+            
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+            
+            ctx.fillStyle = '#374151';
+            ctx.font = `bold 18px 'Pretendard', sans-serif`;
+            ctx.textBaseline = 'top';
+            ctx.fillText(titleText, 10, 10);
+            
+            ctx.drawImage(originalCanvas, 0, titleHeight);
+
+            return await new Promise(resolve => newCanvas.toBlob(resolve, 'image/png'));
+        }
+
+        async function handleShareText() {
+            const textToCopy = generateBriefingText();
             try {
-                // 1. 텍스트 내용 생성
-                const briefingContent = [];
-                const mainTitle = analysisResultEl.querySelector('h2').textContent;
-                briefingContent.push(`[${mainTitle}]`);
-
-                const hotTopicsContainer = analysisResultEl.querySelector('.my-6.pt-4.border-t');
-                if (hotTopicsContainer) {
-                    briefingContent.push(`\n---`);
-                    briefingContent.push(`[🔥 HOT TIME 토픽 TOP 2]`);
-                    hotTopicsContainer.querySelectorAll('.bg-yellow-50').forEach(item => {
-                        const time = item.querySelector('.font-bold').textContent;
-                        const summary = item.querySelector('.summary-content').textContent;
-                        briefingContent.push(`\n${time}\n${summary}`);
-                    });
-                }
-
-                briefingContent.push('\n---');
-                briefingContent.push('[오늘의 대화왕 👑]');
-                const rankingList = analysisResultEl.querySelectorAll('ol > li');
-                rankingList.forEach(item => {
-                    const rank = item.querySelector('.font-bold').textContent.trim();
-                    const user = item.querySelector('.text-gray-700').textContent;
-                    const count = item.querySelector('.font-semibold').textContent;
-                    const summary = item.querySelector('.summary-content')?.textContent || '(요약 없음)';
-                    briefingContent.push(`\n${rank} ${user} (${count})`);
-                    briefingContent.push(`${summary}`);
-                });
-
-                const noticeSection = analysisResultEl.querySelector('#notice-section');
-                if (noticeSection) {
-                    const noticeTitle = noticeSection.querySelector('h3')?.textContent;
-                    briefingContent.push('\n---');
-                    briefingContent.push(`[${noticeTitle}]`);
-                    const notices = noticeSection.querySelectorAll('p');
-                    notices.forEach(p => {
-                        briefingContent.push(p.textContent);
-                    });
-                }
-                const textToCopy = briefingContent.join('\n');
-                const textBlob = new Blob([textToCopy], { type: 'text/plain' });
-
-                const originalCanvas = timelineChartInstance.canvas;
-                const titleText = '📈 지난 24시간 대화량 추이';
-                const titleHeight = 40; // Space for title and margin
-                
-                const newCanvas = document.createElement('canvas');
-                newCanvas.width = originalCanvas.width;
-                newCanvas.height = originalCanvas.height + titleHeight;
-                const ctx = newCanvas.getContext('2d');
-                
-                ctx.fillStyle = 'white';
-                ctx.fillRect(0, 0, newCanvas.width, newCanvas.height);
-                
-                ctx.fillStyle = '#374151'; // text-gray-700
-                ctx.font = `bold 18px 'Pretendard', sans-serif`; // Corresponds to text-lg font-bold
-                ctx.textBaseline = 'top';
-                ctx.fillText(titleText, 10, 10);
-                
-                ctx.drawImage(originalCanvas, 0, titleHeight);
-
-                const imageBlob = await new Promise(resolve => newCanvas.toBlob(resolve, 'image/png'));
-                
-                if (!imageBlob) {
-                    throw new Error('Canvas to Blob conversion failed.');
-                }
-
-                await navigator.clipboard.write([
-                    new ClipboardItem({
-                        'text/plain': textBlob,
-                        'image/png': imageBlob,
-                    })
-                ]);
-
-                messageEl.textContent = '✅ 브리핑 내용(텍스트+이미지)이 복사되었습니다!';
+                await navigator.clipboard.writeText(textToCopy);
+                messageEl.textContent = '✅ 브리핑 텍스트가 복사되었습니다!';
                 messageEl.className = 'mt-4 text-sm h-5 text-green-600';
-
             } catch (err) {
-                console.error('Clipboard API failed:', err);
-                const briefingContent = [];
-                const mainTitle = analysisResultEl.querySelector('h2').textContent;
-                briefingContent.push(`[${mainTitle}]`);
-
-                const hotTopicsContainer = analysisResultEl.querySelector('.my-6.pt-4.border-t');
-                if (hotTopicsContainer) {
-                    briefingContent.push(`\n---`);
-                    briefingContent.push(`[🔥 HOT TIME 토픽 TOP 2]`);
-                    hotTopicsContainer.querySelectorAll('.bg-yellow-50').forEach(item => {
-                        const time = item.querySelector('.font-bold').textContent;
-                        const summary = item.querySelector('.summary-content').textContent;
-                        briefingContent.push(`\n${time}\n${summary}`);
-                    });
-                }
-
-                briefingContent.push('\n---');
-                briefingContent.push('[오늘의 대화왕 👑]');
-                const rankingList = analysisResultEl.querySelectorAll('ol > li');
-                rankingList.forEach(item => {
-                    const rank = item.querySelector('.font-bold').textContent.trim();
-                    const user = item.querySelector('.text-gray-700').textContent;
-                    const count = item.querySelector('.font-semibold').textContent;
-                    const summary = item.querySelector('.summary-content')?.textContent || '(요약 없음)';
-                    briefingContent.push(`\n${rank} ${user} (${count})`);
-                    briefingContent.push(`${summary}`);
-                });
-
-                const noticeSection = analysisResultEl.querySelector('#notice-section');
-                if (noticeSection) {
-                    const noticeTitle = noticeSection.querySelector('h3')?.textContent;
-                    briefingContent.push('\n---');
-                    briefingContent.push(`[${noticeTitle}]`);
-                    const notices = noticeSection.querySelectorAll('p');
-                    notices.forEach(p => {
-                        briefingContent.push(p.textContent);
-                    });
-                }
-                const textToCopy = briefingContent.join('\n');
-                
+                console.error('Text copy failed with navigator.clipboard, trying fallback:', err);
                 const textArea = document.createElement("textarea");
                 textArea.value = textToCopy;
                 document.body.appendChild(textArea);
@@ -1027,16 +989,33 @@
                 textArea.select();
                 try {
                     document.execCommand('copy');
-                    messageEl.textContent = '⚠️ 이미지를 복사할 수 없어 텍스트만 복사되었습니다.';
-                    messageEl.className = 'mt-4 text-sm h-5 text-orange-500';
+                    messageEl.textContent = '✅ 텍스트가 복사되었습니다!';
+                    messageEl.className = 'mt-4 text-sm h-5 text-green-600';
                 } catch (copyErr) {
-                    messageEl.textContent = '⚠️ 복사에 실패했습니다.';
+                    messageEl.textContent = '⚠️ 텍스트 복사에 실패했습니다.';
                     messageEl.className = 'mt-4 text-sm h-5 text-red-600';
                 }
                 document.body.removeChild(textArea);
             }
         }
 
+        async function handleShareImage() {
+            try {
+                const imageBlob = await generateBriefingImageBlob();
+                if (!imageBlob) throw new Error('이미지 생성에 실패했습니다.');
+
+                await navigator.clipboard.write([
+                    new ClipboardItem({ 'image/png': imageBlob })
+                ]);
+
+                messageEl.textContent = '✅ 차트 이미지가 클립보드에 복사되었습니다!';
+                messageEl.className = 'mt-4 text-sm h-5 text-green-600';
+            } catch (err) {
+                console.error('Image copy failed:', err);
+                messageEl.textContent = '⚠️ 이미지 복사에 실패했습니다. (브라우저 미지원)';
+                messageEl.className = 'mt-4 text-sm h-5 text-red-600';
+            }
+        }
 
         function displayWarningList(warningList, dateString) {
             analysisResultEl.innerHTML = '';
