@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>슬기로운 순대생활 분석기</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.8/dist/web/static/pretendard.css">
     <style>
         body { font-family: 'Pretendard', sans-serif; }
@@ -37,7 +38,6 @@
         <input type="file" id="fileInput" accept=".txt" class="hidden">
         <p id="fileName" class="text-sm text-gray-600 mt-3 h-5"></p>
 
-        <!-- API 키 입력 섹션 -->
         <div class="mt-6 text-left border-t pt-4">
             <label for="apiKeyInput" class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key</label>
             <div class="relative">
@@ -76,7 +76,6 @@
         
         <div id="message" class="mt-4 text-sm h-5"></div>
 
-        <!-- 개인 리포트 섹션 -->
         <div class="mt-6 text-left border-t pt-4">
             <div class="flex gap-2">
                 <input type="text" id="userInput" class="w-2/5 p-2 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500" placeholder="닉네임 입력">
@@ -85,7 +84,6 @@
             <p id="userSearchFeedback" class="text-sm text-gray-600 mt-1 h-5"></p>
         </div>
 
-        <!-- 분석 결과가 표시될 영역 -->
         <div id="analysisResult" class="mt-6 text-left"></div>
     </div>
 
@@ -94,6 +92,7 @@
         let parsedChatData = [];
         let fullParsedChatData = []; // 전체 대화 기록 저장용
         let csvContent = '';
+        let timelineChartInstance = null; // 차트 인스턴스 저장용
 
         // --- DOM 요소 ---
         const fileInput = document.getElementById('fileInput');
@@ -176,17 +175,17 @@
                     
                     parsedChatData = fullParsedChatData.filter(chat => new Date(chat.Timestamp) >= sevenDaysAgo);
 
-                    if (parsedChatData.length > 0) {
-                        csvContent = convertToCSV(parsedChatData);
+                    if (fullParsedChatData.length > 0) {
+                        csvContent = convertToCSV(fullParsedChatData);
                         downloadBtn.disabled = false;
                         analyzeDailyBtn.disabled = false;
                         analyzeWeeklyBtn.disabled = false;
                         analyzeMonthlyStatusBtn.disabled = false;
                         personalReportBtn.disabled = false;
-                        messageEl.textContent = `🎉 최근 7일간 ${parsedChatData.length}개 메시지 처리 완료!`;
+                        messageEl.textContent = `🎉 총 ${fullParsedChatData.length}개 메시지 처리 완료! (분석은 최근 7일 기준)`;
                         messageEl.className = 'mt-4 text-sm h-5 text-green-600';
                     } else {
-                        throw new Error("최근 7일간의 대화 기록이 없습니다.");
+                        throw new Error("분석할 대화 기록이 없습니다.");
                     }
                 } catch (err) {
                     resetUI(false);
@@ -251,7 +250,6 @@
                 // 2. 최근 7일간 대화 기반 리포트 생성 및 추가
                 const recentUserMessages = parsedChatData.filter(chat => chat.User === targetUser);
                 
-                // 로딩 표시를 위한 컨테이너 생성
                 const recentTopicsContainer = document.createElement('div');
                 recentTopicsContainer.id = 'recent-topics-container';
                 recentTopicsContainer.innerHTML = `<p class="text-center mt-6">최근 7일간 토픽을 분석 중입니다... ⏳</p>`;
@@ -261,7 +259,7 @@
                     const recentTopicsReport = await generateRecentTopicsReport(targetUser, recentUserMessages);
                     displayRecentTopicsReport(recentTopicsReport, recentTopicsContainer);
                 } else {
-                    recentTopicsContainer.innerHTML = ''; // 대화 없으면 로딩 메시지 제거
+                    recentTopicsContainer.innerHTML = ''; 
                 }
 
             } catch (error) {
@@ -376,7 +374,6 @@
         }
 
         function displayRecentTopicsReport(report, container) {
-            // 로딩 메시지를 지우고 새로운 내용으로 채움
             container.innerHTML = '';
 
             const divider = document.createElement('hr');
@@ -397,14 +394,14 @@
 
 
         async function handleDailyBriefing() {
-            if (parsedChatData.length === 0) return;
+            if (fullParsedChatData.length === 0) return;
             
             let chatsForRanking = [];
             let analysisDate = null;
 
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            const todaysChats = parsedChatData.filter(chat => {
+            const todaysChats = fullParsedChatData.filter(chat => {
                 const chatDate = new Date(chat.Timestamp);
                 chatDate.setHours(0, 0, 0, 0);
                 return chatDate.getTime() === today.getTime();
@@ -417,7 +414,7 @@
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
                 yesterday.setHours(0, 0, 0, 0);
-                const yesterdaysChats = parsedChatData.filter(chat => {
+                const yesterdaysChats = fullParsedChatData.filter(chat => {
                     const chatDate = new Date(chat.Timestamp);
                     chatDate.setHours(0, 0, 0, 0);
                     return chatDate.getTime() === yesterday.getTime();
@@ -427,26 +424,32 @@
                     analysisDate = yesterday;
                 }
             }
-
-            if (chatsForRanking.length === 0) {
-                displayAnalysisResult([], '오늘과 어제');
-                return;
-            }
-
+            
             const userCounts = countUserMessages(chatsForRanking);
             const top5 = getTopUsers(userCounts);
 
+            // 1. 순위 표시 함수를 먼저 호출하여 기본 구조(차트 캔버스, 순위 제목 등) 생성
             displayAnalysisResult(top5, null, true, analysisDate);
-            displayMemberChanges(chatsForRanking);
 
+            // 2. 지난 24시간 데이터로 차트 생성 및 표시
             const twentyFourHoursAgo = new Date();
             twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
-            const last24hChats = parsedChatData.filter(chat => new Date(chat.Timestamp) >= twentyFourHoursAgo);
+            const last24hChats = fullParsedChatData.filter(chat => new Date(chat.Timestamp) >= twentyFourHoursAgo);
+            
+            const chartData = generateTimelineData(last24hChats);
+            displayTimelineChart(chartData);
 
+            // 3. HOT TIME 토픽 생성 및 표시
+            await displayHotTimeTopics(last24hChats, chartData);
+
+            // 4. 인원 변동 표시
+            displayMemberChanges(chatsForRanking);
+
+            // 5. 개인별 요약 생성
             for (const [user, count] of top5) {
                 const userChats = last24hChats
                     .filter(chat => chat.User === user)
-                    .map(chat => chat.Message)
+                    <map(chat => chat.Message)
                     .join('\n');
                 
                 const summaryElement = document.getElementById(`summary-for-${user.replace(/\s/g, '-')}`);
@@ -558,23 +561,39 @@
         function displayAnalysisResult(ranking, dateString, isBriefing = false, briefingDate = null) {
             analysisResultEl.innerHTML = '';
             
-            let titleText = '';
-            if (isBriefing && briefingDate) {
-                titleText = `오늘의 순대 브리핑 (${formatDate(briefingDate)})`;
-            } else {
-                titleText = `👑 ${dateString}의 대화왕 순위 TOP ${ranking.length}`;
+            if (isBriefing) {
+                // 메인 타이틀
+                const mainTitle = document.createElement('h2');
+                mainTitle.className = 'text-xl font-bold mb-4 text-gray-800';
+                mainTitle.textContent = briefingDate ? `오늘의 순대 브리핑 (${formatDate(briefingDate)})` : '오늘의 순대 브리핑';
+                analysisResultEl.appendChild(mainTitle);
+
+                // 차트 컨테이너
+                const chartContainer = document.createElement('div');
+                chartContainer.className = 'mb-6';
+                chartContainer.innerHTML = `
+                    <h3 class="text-lg font-bold mb-2 text-gray-700">📈 지난 24시간 대화량 추이</h3>
+                    <canvas id="timelineChart"></canvas>
+                `;
+                analysisResultEl.appendChild(chartContainer);
             }
 
-            const title = document.createElement('h2');
-            title.className = 'text-xl font-bold mb-3 text-gray-800 border-b pb-2';
-            title.textContent = titleText;
-            analysisResultEl.appendChild(title);
+            // 소제목 (대화왕 순위)
+            const subTitle = document.createElement('h3');
+            subTitle.className = 'text-lg font-bold mb-2 text-gray-700 mt-6 pt-4 border-t'; // [MODIFIED]
+            subTitle.textContent = isBriefing ? '오늘의 대화왕 👑' : `👑 ${dateString}의 대화왕 순위 TOP ${ranking.length}`;
+            analysisResultEl.appendChild(subTitle);
+
 
             if (ranking.length === 0) {
                 const noData = document.createElement('p');
                 noData.className = 'text-gray-500 mt-4';
-                noData.textContent = `${dateString} 대화 기록이 없습니다.`;
+                noData.textContent = `${briefingDate ? formatDate(briefingDate) : dateString} 대화 기록이 없습니다.`;
                 analysisResultEl.appendChild(noData);
+                if(isBriefing) {
+                    const ctx = document.getElementById('timelineChart')?.getContext('2d');
+                    if(ctx) ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                }
                 return;
             }
             const list = document.createElement('ol');
@@ -584,14 +603,14 @@
                 const item = document.createElement('li');
                 item.className = 'result-item p-3 rounded-lg bg-gray-50 text-left';
                 item.style.animationDelay = `${index * 100}ms`;
-                const rank = medals[index] || `${index + 1}.`;
+                const rank = medals[index] || `<span class="text-gray-500">${index + 1}.</span>`;
                 const summaryHtml = isBriefing ?
                     `<div id="summary-for-${user.replace(/\s/g, '-')}" class="mt-2 text-sm text-gray-600 p-2 bg-gray-100 rounded">요약 중... 🤔</div>` : '';
                 
                 item.innerHTML = `
                     <div class="flex items-center justify-between">
                         <div class="flex items-center">
-                            <span class="font-bold w-8 text-lg">${rank}</span>
+                            <span class="font-bold w-10 text-lg text-center">${rank}</span>
                             <span class="text-gray-700">${user}</span>
                         </div>
                         <span class="font-semibold text-blue-600">${count}회</span>
@@ -601,6 +620,227 @@
                 list.appendChild(item);
             });
             analysisResultEl.appendChild(list);
+        }
+
+        function generateTimelineData(chats) {
+            const now = new Date();
+            const labels = [];
+            const data = new Array(48).fill(0); // 24 hours * 2 intervals/hour
+
+            const startOfCurrentInterval = new Date(now);
+            const currentMinutes = startOfCurrentInterval.getMinutes();
+            if (currentMinutes < 30) {
+                startOfCurrentInterval.setMinutes(0, 0, 0);
+            } else {
+                startOfCurrentInterval.setMinutes(30, 0, 0);
+            }
+            
+            const startTime = new Date(startOfCurrentInterval.getTime() - 47 * 30 * 60 * 1000);
+
+            for (let i = 0; i < 48; i++) {
+                const time = new Date(startTime.getTime() + i * 30 * 60 * 1000);
+                const hours = time.getHours().toString().padStart(2, '0');
+                const minutes = time.getMinutes().toString().padStart(2, '0');
+                labels.push(`${hours}:${minutes}`);
+            }
+
+            chats.forEach(chat => {
+                const chatTime = new Date(chat.Timestamp);
+                const diffMinutes = (chatTime - startTime) / (1000 * 60);
+                const index = Math.floor(diffMinutes / 30);
+
+                if (index >= 0 && index < 48) {
+                    data[index]++;
+                }
+            });
+
+            return { labels, data };
+        }
+
+        function displayTimelineChart({ labels, data }) {
+            const ctx = document.getElementById('timelineChart')?.getContext('2d');
+            if (!ctx) return;
+
+            if (timelineChartInstance) {
+                timelineChartInstance.destroy();
+            }
+
+            timelineChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '대화 수',
+                        data: data,
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0, 
+                        pointHoverRadius: 5,
+                        pointHitRadius: 10,
+                        pointBackgroundColor: 'rgb(59, 130, 246)',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0 
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 0,
+                                minRotation: 0,
+                                autoSkip: true,
+                                maxTicksLimit: 8 
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    return `⏰ ${tooltipItems[0].label}`;
+                                },
+                                label: function(context) {
+                                    return `💬 대화: ${context.parsed.y}회`;
+                                }
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    }
+                }
+            });
+        }
+
+        async function displayHotTimeTopics(chats, timelineData) {
+            const hotTimeContainer = document.createElement('div');
+            hotTimeContainer.className = 'my-6 pt-4 border-t';
+            hotTimeContainer.innerHTML = '<h3 class="text-lg font-bold mb-2 text-gray-700">🔥 HOT TIME 토픽 TOP 3</h3>';
+            
+            // 순위 제목(h3) 앞에 삽입
+            const rankingTitle = Array.from(analysisResultEl.querySelectorAll('h3')).pop();
+            if (rankingTitle) {
+                analysisResultEl.insertBefore(hotTimeContainer, rankingTitle);
+            } else {
+                analysisResultEl.appendChild(hotTimeContainer);
+            }
+
+            const topSlots = timelineData.data
+                .map((count, index) => ({ count, index }))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 3)
+                .filter(slot => slot.count > 0);
+
+            if (topSlots.length === 0) {
+                hotTimeContainer.innerHTML += '<p class="text-gray-500 text-sm">지난 24시간 동안 대화가 없어 HOT TIME을 분석할 수 없어요.</p>';
+                return;
+            }
+
+            const now = new Date();
+            const startOfCurrentInterval = new Date(now);
+            const currentMinutes = startOfCurrentInterval.getMinutes();
+            if (currentMinutes < 30) {
+                startOfCurrentInterval.setMinutes(0, 0, 0);
+            } else {
+                startOfCurrentInterval.setMinutes(30, 0, 0);
+            }
+            const startTime = new Date(startOfCurrentInterval.getTime() - 47 * 30 * 60 * 1000);
+
+            for (const slot of topSlots) {
+                const slotStartTime = new Date(startTime.getTime() + slot.index * 30 * 60 * 1000);
+                const slotEndTime = new Date(slotStartTime.getTime() + 30 * 60 * 1000);
+                
+                const formatTime = (date) => `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                const timeLabel = `${formatTime(slotStartTime)} ~ ${formatTime(slotEndTime)}`;
+
+                const slotMessages = chats.filter(chat => {
+                    const chatTime = new Date(chat.Timestamp);
+                    return chatTime >= slotStartTime && chatTime < slotEndTime;
+                });
+
+                const topicElement = document.createElement('div');
+                topicElement.className = 'mt-3 p-3 rounded-lg bg-yellow-50 text-left';
+                topicElement.innerHTML = `
+                    <p class="font-bold text-gray-800">⏰ ${timeLabel} (대화 ${slot.count}회)</p>
+                    <div class="summary-content text-sm text-gray-600 mt-1" id="hot-topic-${slot.index}">요약 중... 🤔</div>
+                `;
+                hotTimeContainer.appendChild(topicElement);
+
+                generateHotTimeSummary(slotMessages).then(summary => {
+                    const summaryEl = document.getElementById(`hot-topic-${slot.index}`);
+                    if (summaryEl) summaryEl.innerHTML = summary;
+                }).catch(error => {
+                    const summaryEl = document.getElementById(`hot-topic-${slot.index}`);
+                    if (summaryEl) summaryEl.innerHTML = `<p class="text-red-500">${error.message}</p>`;
+                });
+            }
+        }
+
+        async function generateHotTimeSummary(messages) {
+            const apiKey = apiKeyInput.value.trim() || localStorage.getItem('geminiApiKey');
+            if (!apiKey) throw new Error("Gemini API 키를 입력하고 저장해주세요.");
+
+            const chatContent = messages.map(m => `${m.User}: ${m.Message}`).join('\n');
+            if (!chatContent) return "특별한 주제 없이 대화가 오고 갔어요.";
+
+            // [MODIFIED] Prompt changed to match new requirements
+            const prompt = `다음은 특정 시간대에 나눈 카카오톡 대화 내용이야. 이 대화의 핵심 내용을 아래 조건에 맞춰서 요약해줘.
+
+            조건:
+            1. 숫자 리스트 형식으로 작성 (예: 1. 내용)
+            2. 각 항목은 이모티콘 없이, 최대 13글자로 작성
+            3. 최대 9개 항목까지만 요약
+            4. 9개 항목을 다 채우지 못해도, 마지막에는 반드시 "10. 많다.."를 추가할 것
+            5. 대화 내용이 거의 없다면 "1. 조용한 시간이었네요." 정도로만 요약하고 "10. 많다.."는 생략할 것
+
+            출력 예시:
+            1. 신입분들 환영하고 반갑습니다.
+            2. 안양천 벙개 많관부
+            3. 체리 vs 새로 사랑싸움
+            4. 위고비 대항마 등장
+            5. 체리님 생일 축하
+            6.
+            7.
+            8.
+            9.
+            10. 많다..
+            
+            ---
+            [대화 내용]
+            ${chatContent.substring(0, 3000)}
+            ---`;
+            
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error(`API 호출 실패: ${response.status}`);
+
+            const result = await response.json();
+            if (result.candidates && result.candidates.length > 0) {
+                return result.candidates[0].content.parts[0].text;
+            } else {
+                throw new Error("요약 생성에 실패했어요 😢");
+            }
         }
 
         function displayMemberChanges(chatList) {
@@ -632,13 +872,13 @@
                 if (newMembers.length > 0) {
                     noticeContent += `<p class="text-green-600 text-sm">🎉 새로 전입왔어요!</p>`;
                     newMembers.forEach(name => {
-                        noticeContent += `<p class="text-green-600 text-sm pl-4">${name}</p>`;
+                        noticeContent += `<p class="text-green-600 text-sm pl-4">- ${name}</p>`;
                     });
                 }
                 if (leftMembers.length > 0) {
                     noticeContent += `<p class="text-red-600 text-sm mt-2">😢 전출가셨어요.</p>`;
                     leftMembers.forEach(name => {
-                        noticeContent += `<p class="text-red-600 text-sm pl-4">${name}</p>`;
+                        noticeContent += `<p class="text-red-600 text-sm pl-4">- ${name}</p>`;
                     });
                 }
             }
@@ -657,50 +897,146 @@
             analysisResultEl.appendChild(shareButtonContainer);
         }
         
-        function handleShareBriefing() {
-            const briefingContent = [];
-            
-            const title = analysisResultEl.querySelector('h2').textContent;
-            briefingContent.push(`[${title}]`);
-            
-            const rankingList = analysisResultEl.querySelectorAll('ol > li');
-            rankingList.forEach(item => {
-                const rank = item.querySelector('.font-bold').textContent;
-                const user = item.querySelector('.text-gray-700').textContent;
-                const count = item.querySelector('.font-semibold').textContent;
-                const summary = item.querySelector('.summary-content')?.textContent || '(요약 없음)';
-                
-                briefingContent.push(`\n${rank} ${user} (${count})`);
-                briefingContent.push(`${summary}`);
-            });
-
-            const noticeSection = analysisResultEl.querySelector('#notice-section');
-            if (noticeSection) {
-                const noticeTitle = noticeSection.querySelector('h3')?.textContent;
-                briefingContent.push('\n---');
-                briefingContent.push(`[${noticeTitle}]`);
-                const notices = noticeSection.querySelectorAll('p');
-                notices.forEach(p => {
-                    briefingContent.push(p.textContent);
-                });
-            }
-
-            const textToCopy = briefingContent.join('\n');
-            
-            const textArea = document.createElement("textarea");
-            textArea.value = textToCopy;
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
+        async function handleShareBriefing() {
             try {
-                document.execCommand('copy');
-                messageEl.textContent = '✅ 브리핑 내용이 복사되었습니다!';
+                // 1. 텍스트 내용 생성
+                const briefingContent = [];
+                const mainTitle = analysisResultEl.querySelector('h2').textContent;
+                briefingContent.push(`[${mainTitle}]`);
+
+                const hotTopicsContainer = analysisResultEl.querySelector('.my-6.pt-4.border-t');
+                if (hotTopicsContainer) {
+                    briefingContent.push(`\n---`);
+                    briefingContent.push(`[🔥 HOT TIME 토픽 TOP 3]`);
+                    hotTopicsContainer.querySelectorAll('.bg-yellow-50').forEach(item => {
+                        const time = item.querySelector('.font-bold').textContent;
+                        const summary = item.querySelector('.summary-content').textContent;
+                        briefingContent.push(`\n${time}\n${summary}`);
+                    });
+                }
+
+                briefingContent.push('\n---');
+                briefingContent.push('[오늘의 대화왕 👑]');
+                const rankingList = analysisResultEl.querySelectorAll('ol > li');
+                rankingList.forEach(item => {
+                    const rank = item.querySelector('.font-bold').textContent.trim();
+                    const user = item.querySelector('.text-gray-700').textContent;
+                    const count = item.querySelector('.font-semibold').textContent;
+                    const summary = item.querySelector('.summary-content')?.textContent || '(요약 없음)';
+                    briefingContent.push(`\n${rank} ${user} (${count})`);
+                    briefingContent.push(`${summary}`);
+                });
+
+                const noticeSection = analysisResultEl.querySelector('#notice-section');
+                if (noticeSection) {
+                    const noticeTitle = noticeSection.querySelector('h3')?.textContent;
+                    briefingContent.push('\n---');
+                    briefingContent.push(`[${noticeTitle}]`);
+                    const notices = noticeSection.querySelectorAll('p');
+                    notices.forEach(p => {
+                        briefingContent.push(p.textContent);
+                    });
+                }
+                const textToCopy = briefingContent.join('\n');
+                const textBlob = new Blob([textToCopy], { type: 'text/plain' });
+
+                // [MODIFIED] Create a new canvas with title and white background
+                const originalCanvas = timelineChartInstance.canvas;
+                const titleText = '📈 지난 24시간 대화량 추이';
+                const titleHeight = 40; // Space for title and margin
+                
+                const newCanvas = document.createElement('canvas');
+                newCanvas.width = originalCanvas.width;
+                newCanvas.height = originalCanvas.height + titleHeight;
+                const ctx = newCanvas.getContext('2d');
+                
+                // Draw white background
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+                
+                // Draw title
+                ctx.fillStyle = '#374151'; // text-gray-700
+                ctx.font = `bold 18px 'Pretendard', sans-serif`; // Corresponds to text-lg font-bold
+                ctx.textBaseline = 'top';
+                ctx.fillText(titleText, 10, 10);
+                
+                // Draw chart image below the title
+                ctx.drawImage(originalCanvas, 0, titleHeight);
+
+                const imageBlob = await new Promise(resolve => newCanvas.toBlob(resolve, 'image/png'));
+                
+                if (!imageBlob) {
+                    throw new Error('Canvas to Blob conversion failed.');
+                }
+
+                // 3. Clipboard API를 사용하여 텍스트와 이미지 함께 복사
+                await navigator.clipboard.write([
+                    new ClipboardItem({
+                        'text/plain': textBlob,
+                        'image/png': imageBlob,
+                    })
+                ]);
+
+                messageEl.textContent = '✅ 브리핑 내용(텍스트+이미지)이 복사되었습니다!';
                 messageEl.className = 'mt-4 text-sm h-5 text-green-600';
+
             } catch (err) {
-                messageEl.textContent = '⚠️ 복사에 실패했습니다.';
-                messageEl.className = 'mt-4 text-sm h-5 text-red-600';
+                console.error('Clipboard API failed:', err);
+                // Clipboard API 실패 시 텍스트만 복사하는 것으로 대체
+                const briefingContent = [];
+                const mainTitle = analysisResultEl.querySelector('h2').textContent;
+                briefingContent.push(`[${mainTitle}]`);
+
+                const hotTopicsContainer = analysisResultEl.querySelector('.my-6.pt-4.border-t');
+                if (hotTopicsContainer) {
+                    briefingContent.push(`\n---`);
+                    briefingContent.push(`[🔥 HOT TIME 토픽 TOP 3]`);
+                    hotTopicsContainer.querySelectorAll('.bg-yellow-50').forEach(item => {
+                        const time = item.querySelector('.font-bold').textContent;
+                        const summary = item.querySelector('.summary-content').textContent;
+                        briefingContent.push(`\n${time}\n${summary}`);
+                    });
+                }
+
+                briefingContent.push('\n---');
+                briefingContent.push('[오늘의 대화왕 👑]');
+                const rankingList = analysisResultEl.querySelectorAll('ol > li');
+                rankingList.forEach(item => {
+                    const rank = item.querySelector('.font-bold').textContent.trim();
+                    const user = item.querySelector('.text-gray-700').textContent;
+                    const count = item.querySelector('.font-semibold').textContent;
+                    const summary = item.querySelector('.summary-content')?.textContent || '(요약 없음)';
+                    briefingContent.push(`\n${rank} ${user} (${count})`);
+                    briefingContent.push(`${summary}`);
+                });
+
+                const noticeSection = analysisResultEl.querySelector('#notice-section');
+                if (noticeSection) {
+                    const noticeTitle = noticeSection.querySelector('h3')?.textContent;
+                    briefingContent.push('\n---');
+                    briefingContent.push(`[${noticeTitle}]`);
+                    const notices = noticeSection.querySelectorAll('p');
+                    notices.forEach(p => {
+                        briefingContent.push(p.textContent);
+                    });
+                }
+                const textToCopy = briefingContent.join('\n');
+                
+                const textArea = document.createElement("textarea");
+                textArea.value = textToCopy;
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    messageEl.textContent = '⚠️ 이미지를 복사할 수 없어 텍스트만 복사되었습니다.';
+                    messageEl.className = 'mt-4 text-sm h-5 text-orange-500';
+                } catch (copyErr) {
+                    messageEl.textContent = '⚠️ 복사에 실패했습니다.';
+                    messageEl.className = 'mt-4 text-sm h-5 text-red-600';
+                }
+                document.body.removeChild(textArea);
             }
-            document.body.removeChild(textArea);
         }
 
 
