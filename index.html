@@ -84,7 +84,6 @@
             <p id="userSearchFeedback" class="text-sm text-gray-600 mt-1 h-5"></p>
         </div>
         
-        <!-- Keyword Search Section -->
         <div class="mt-4 text-left border-t pt-4">
             <div class="flex gap-2">
                 <input type="text" id="keywordInput" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" placeholder="키워드 입력">
@@ -224,7 +223,49 @@
             };
             reader.readAsText(file, 'UTF-8');
         }
+
+        // --- [신규] 날짜/시간 포맷팅 헬퍼 함수 ---
+        function formatSimpleDateTime(date) {
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            return `${year}.${month}.${day} / ${hours}:${minutes}`;
+        }
+
+        // --- [신규] 최근 대화 30개 표시 함수 ---
+        function displayRecentConversations(recentMessages) {
+            const container = document.createElement('div');
+            container.id = 'recent-conversations-container';
+            container.className = 'mt-6 pt-4 border-t';
+
+            const title = document.createElement('h3');
+            title.className = 'text-lg font-bold mb-2 text-gray-700';
+            title.textContent = '💬 최근 대화 30개';
+            container.appendChild(title);
+
+            if (recentMessages.length === 0) {
+                container.innerHTML += '<p class="text-gray-500">최근 대화가 없습니다.</p>';
+            } else {
+                const list = document.createElement('div');
+                // 스타일 수정: 가독성을 위해 줄 간격과 글자 크기 조정
+                list.className = 'space-y-2 text-sm text-gray-800 bg-gray-50 p-3 rounded-lg max-h-60 overflow-y-auto';
+                recentMessages.forEach(chat => {
+                    const messageEl = document.createElement('p');
+                    const formattedTimestamp = formatSimpleDateTime(new Date(chat.Timestamp));
+                    // HTML에서 줄바꿈이 보이도록 \n을 <br>로 변경
+                    const formattedMessage = chat.Message.replace(/\n/g, '<br>');
+                    messageEl.innerHTML = `<span class="font-semibold text-pink-600">${formattedTimestamp}</span>: ${formattedMessage}`;
+                    list.appendChild(messageEl);
+                });
+                container.appendChild(list);
+            }
+            // 기존 분석 결과 뒤에 추가
+            analysisResultEl.appendChild(container);
+        }
         
+        // --- [수정] handlePersonalReport 함수 ---
         async function handlePersonalReport() {
             const searchTerm = userInput.value.trim();
             if (!searchTerm) {
@@ -272,12 +313,20 @@
                 const report = await generatePersonalReport(targetUser, userMessages, topResponders);
                 displayPersonalReport(targetUser, report);
 
-                // 2. 최근 7일간 대화 기반 리포트 생성 및 추가
+                // --- [수정된 로직 시작] ---
+                // 2. 사용자의 최근 대화 30개 추출 및 표시
+                const recent30Messages = userMessages.slice(-30);
+                displayRecentConversations(recent30Messages);
+                // --- [수정된 로직 끝] ---
+
+
+                // 3. 최근 7일간 대화 기반 리포트 생성 및 추가
                 const recentUserMessages = parsedChatData.filter(chat => chat.User === targetUser);
                 
                 const recentTopicsContainer = document.createElement('div');
                 recentTopicsContainer.id = 'recent-topics-container';
-                recentTopicsContainer.innerHTML = `<p class="text-center mt-6">최근 7일간 토픽을 분석 중입니다... ⏳</p>`;
+                // 스타일링을 위해 구분선 추가
+                recentTopicsContainer.innerHTML = `<hr class="my-6 border-t border-gray-200"><p class="text-center mt-6">최근 7일간 토픽을 분석 중입니다... ⏳</p>`;
                 analysisResultEl.appendChild(recentTopicsContainer);
 
                 if (recentUserMessages.length > 0) {
@@ -585,9 +634,6 @@
 
         function displayRecentTopicsReport(report, container) {
             container.innerHTML = '';
-
-            const divider = document.createElement('hr');
-            divider.className = 'my-6 border-t border-gray-200';
             
             const title = document.createElement('h2');
             title.className = 'text-xl font-bold mb-3 text-gray-800 border-b pb-2';
@@ -597,7 +643,6 @@
             content.className = 'summary-content text-left';
             content.innerHTML = report.replace(/^- (.*)/gm, '<p class="ml-2">- $1</p>');
             
-            container.appendChild(divider);
             container.appendChild(title);
             container.appendChild(content);
         }
